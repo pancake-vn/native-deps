@@ -1,0 +1,15 @@
+[package]
+name = "rlottie-sys"
+version = "0.1.0"
+edition = "2021"
+# `links` reserves the native lib name so two crates can never both compile
+# rlottie into one build graph, and lets build.rs metadata (cargo:include)
+# reach the direct dependent as DEP_RLOTTIE_INCLUDE.
+links = "rlottie"
+license-file = "LICENSE"
+description = "Vendored Samsung/rlottie (patched fork, see vendor/rlottie/VENDOR.md) compiled to a static library. Build-only: no Rust bindings."
+repository = "https://github.com/pancake-vn/lottie-renderer"
+publish = false
+
+[build-dependencies]
+cc = "1"
