@@ -1,0 +1,21 @@
+[package]
+name = "vpx-sys"
+version = "0.1.0"
+edition = "2021"
+# `links` reserves the native lib name so two crates can never both compile
+# libvpx into one build graph, and lets build.rs metadata reach the direct
+# dependent.
+links = "vpx"
+license = "BSD-3-Clause"
+description = "Vendored libvpx (decode-only subset, see vendor.sh) compiled with cc-rs, plus bindgen FFI bindings for the VP9 decoder API."
+repository = "https://github.com/pancake-vn/lottie-renderer"
+publish = false
+
+# Vendored libvpx (decode-only subset, see vendor.sh): build hosts need only
+# cc + libclang — the exact toolchain footprint thorvg-sys already demands,
+# nothing new on any platform or CI lane.
+
+[build-dependencies]
+cc = "1"
+# Same bindgen line as thorvg-sys resolves to, so build hosts share the cache.
+bindgen = "0.71"
