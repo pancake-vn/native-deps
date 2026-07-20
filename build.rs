@@ -85,7 +85,7 @@ fn main() {
         build.warnings(false).compile(lib_names[f]);
     }
 
-    let bindings = bindgen::Builder::default()
+    let mut builder = bindgen::Builder::default()
         .header(crate_dir.join("ffi.h").to_string_lossy())
         .clang_arg(format!("-I{}", upstream.display()))
         .clang_arg(format!("-I{}", config.display()))
@@ -94,12 +94,31 @@ fn main() {
         .allowlist_var("VPX_.*|vpx_.*")
         .default_enum_style(bindgen::EnumVariation::Rust {
             non_exhaustive: false,
-        })
-        .generate()
-        .expect(
-            "bindgen over vpx decoder headers (build hosts need libclang, \
-                 same as thorvg-sys)",
-        );
+        });
+
+    // Rust's iOS-simulator target ("aarch64-apple-ios-sim") uses a "-sim"
+    // shorthand that only rustc's own codegen backend understands — it's
+    // not valid LLVM triple syntax. libclang (which bindgen drives
+    // directly, not through rustc) rejects it: "version 'sim' in target
+    // triple ... is invalid". Spell out the triple + sysroot libclang
+    // actually accepts instead. Only "aarch64" ships a simulator config
+    // (see config_dir_for_target), so no arch branch is needed here.
+    if env::var("TARGET").unwrap().ends_with("-ios-sim") {
+        let min_ios = env::var("IPHONEOS_DEPLOYMENT_TARGET").unwrap_or_else(|_| "15.0".into());
+        let sdk_path = std::process::Command::new("xcrun")
+            .args(["--sdk", "iphonesimulator", "--show-sdk-path"])
+            .output()
+            .expect("xcrun --sdk iphonesimulator --show-sdk-path");
+        let sdk_path = String::from_utf8(sdk_path.stdout).unwrap();
+        builder = builder
+            .clang_arg(format!("--target=arm64-apple-ios{min_ios}-simulator"))
+            .clang_arg(format!("-isysroot{}", sdk_path.trim()));
+    }
+
+    let bindings = builder.generate().expect(
+        "bindgen over vpx decoder headers (build hosts need libclang, \
+             same as thorvg-sys)",
+    );
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings.write_to_file(out.join("bindings.rs")).unwrap();
 }
