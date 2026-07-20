@@ -4,7 +4,7 @@
 //! it (Phase 5 of the implementation plan), never touching build hosts.
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn config_dir_for_target() -> &'static str {
     let arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
@@ -113,6 +113,42 @@ fn main() {
         builder = builder
             .clang_arg(format!("--target=arm64-apple-ios{min_ios}-simulator"))
             .clang_arg(format!("-isysroot{}", sdk_path.trim()));
+    }
+
+    // Android needs the same treatment for a different reason. bindgen drives
+    // libclang in-process, so unlike the cc-rs passes above it never sees
+    // CC_*/CFLAGS_* — left alone it parses ffi.h against the *host* sysroot.
+    // On a macOS build host that fails outright (clang's own inttypes.h
+    // #include_next's a libc one that isn't there), and anywhere it did
+    // resolve it would be worse: host headers mint bindings whose layout
+    // disagrees with the bionic-compiled libvpx.a produced above. Point it at
+    // the NDK sysroot instead, derived from the compiler cargokit handed us so
+    // that the NDK root, its version and the host tag are never hardcoded —
+    // they differ across dev machines and CI runners.
+    if env::var("CARGO_CFG_TARGET_OS").unwrap() == "android" {
+        let target = env::var("TARGET").unwrap();
+        // cc-rs-style vars are looked up hyphenated first, then underscored.
+        let lookup = |prefix: &str| {
+            env::var(format!("{prefix}_{target}"))
+                .or_else(|_| env::var(format!("{prefix}_{}", target.replace('-', "_"))))
+        };
+        let cc = lookup("CC").expect(
+            "CC_<target> — set by cargokit (android_environment.dart) for Android builds",
+        );
+        // <ndk>/toolchains/llvm/prebuilt/<host>/bin/clang
+        //   -> <ndk>/toolchains/llvm/prebuilt/<host>/sysroot
+        let sysroot = Path::new(&cc)
+            .parent()
+            .and_then(Path::parent)
+            .expect("CC_<target> should point at <toolchain>/bin/clang")
+            .join("sysroot");
+        // CFLAGS_<target> is "--target=<triple><api>". Reuse it verbatim so the
+        // API level and triple spelling match what libvpx.a was compiled with,
+        // rather than re-deriving them and risking a mismatch.
+        let target_arg = lookup("CFLAGS").unwrap_or_else(|_| format!("--target={target}"));
+        builder = builder
+            .clang_args(target_arg.split_whitespace())
+            .clang_arg(format!("--sysroot={}", sysroot.display()));
     }
 
     let bindings = builder.generate().expect(
