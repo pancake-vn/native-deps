@@ -30,9 +30,12 @@ case "$TARGET" in
   arm64-android*) CONFIG_DIR="arm64-android" ;;
   arm64-linux*) CONFIG_DIR="arm64-linux" ;;
   arm64-win64*) CONFIG_DIR="arm64-win64" ;;
+  armv7-android*) CONFIG_DIR="armv7-android" ;;
+  x86_64-android*) CONFIG_DIR="x86_64-android" ;;
   x86_64-linux*) CONFIG_DIR="x86_64-linux" ;;
   x86_64-darwin*) CONFIG_DIR="x86_64-darwin" ;;
   x86_64-win64*) CONFIG_DIR="x86_64-win64" ;;
+  x86-android*) CONFIG_DIR="x86-android" ;;
   generic-gnu) CONFIG_DIR="generic" ;;
   *) echo "unmapped target $TARGET — add a case above"; exit 1 ;;
 esac
@@ -55,11 +58,13 @@ fi
 echo "== configure --target=$TARGET (decode-only)"
 mkdir -p "$WORK/build"
 cd "$WORK/build"
-# x86_64: all SIMD disabled -> pure C, no nasm/yasm on any build host
+# x86/x86_64: all SIMD disabled -> pure C, no nasm/yasm on any build host
 # (decision: design doc §7.2 — ~35x perf headroom, x86 targets are desktops;
 # per-arch SIMD configs can be added later if a real machine misses budget).
+# x86-android (i686) rides along here too: it's cargokit's 4th Android ABI
+# for local debug builds, same no-SIMD rationale, no dedicated decision needed.
 EXTRA_FLAGS=""
-if [[ "$TARGET" == x86_64-* ]]; then
+if [[ "$TARGET" == x86_64-* || "$TARGET" == x86-* ]]; then
   EXTRA_FLAGS="--disable-mmx --disable-sse --disable-sse2 --disable-sse3 \
     --disable-ssse3 --disable-sse4_1 --disable-avx --disable-avx2 \
     --disable-avx512 --disable-runtime-cpu-detect"
@@ -90,7 +95,15 @@ for src in $SRC_LIST; do
   # (copied below); build.rs compiles it from there, never from upstream/.
   [[ "$src" == "vpx_config.c" ]] && continue
   mkdir -p "$CRATE_DIR/upstream/$(dirname "$src")"
-  cp "$WORK/libvpx/$src" "$CRATE_DIR/upstream/$src"
+  if [[ "$src" == *.asm.S ]]; then
+    # 32-bit ARM's NEON routines are hand-written ARM-syntax .asm, converted
+    # to GNU-syntax .S by libvpx's ads2gas.pl at build time. Vendor the
+    # already-converted .S (it's plain assembler, no perl needed to consume
+    # it) from the build tree — the .asm source was never compiled directly.
+    cp "$WORK/build/$src" "$CRATE_DIR/upstream/$src"
+  else
+    cp "$WORK/libvpx/$src" "$CRATE_DIR/upstream/$src"
+  fi
 done
 
 # Headers: the compile-time closure is hard to enumerate; copy every header
@@ -104,8 +117,9 @@ for dir in vpx vpx_dsp vpx_mem vpx_ports vpx_scale vpx_util vp9 common; do
   done
 done
 
-# Per-target generated configs.
-for f in vpx_config.h vpx_config.c vpx_version.h vpx_dsp_rtcd.h vpx_scale_rtcd.h vp9_rtcd.h; do
+# Per-target generated configs. vpx_config.asm is only produced for 32-bit
+# ARM targets (the .asm.S sources `.include` it for build-time constants).
+for f in vpx_config.h vpx_config.c vpx_config.asm vpx_version.h vpx_dsp_rtcd.h vpx_scale_rtcd.h vp9_rtcd.h; do
   [[ -f "$WORK/build/$f" ]] && cp "$WORK/build/$f" "$CRATE_DIR/configs/$CONFIG_DIR/$f"
 done
 
