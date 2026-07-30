@@ -17,5 +17,20 @@ publish = false
 
 [build-dependencies]
 cc = "1"
-# Same bindgen line as thorvg-sys resolves to, so build hosts share the cache.
-bindgen = "0.71"
+# 0.72, NOT the 0.71 thorvg-sys asks for. The two no longer share a build-dep
+# compile, and that is deliberate: `vpx_codec_dec_cfg` is forward-declared in
+# vpx_codec.h (the `config` union inside vpx_codec_ctx holds a
+# `const struct vpx_codec_dec_cfg *`) and only defined later, in vpx_decoder.h.
+# Driven by libclang 22, bindgen 0.71 never resolves that forward declaration to
+# the definition: it emits `struct vpx_codec_dec_cfg { _address: u8 }` — no
+# threads/w/h — while still taking the layout assertions from the complete clang
+# type. Dependents then die at const eval, miles from the cause:
+#
+#   error[E0080]: attempt to compute `1_usize - 12_usize`, which would overflow
+#   could not compile `vpx-sys` (lib)
+#
+# Windows-only in practice: that build box ships LLVM 22.1.8, while macOS builds
+# use Xcode's libclang 21, where 0.71 still resolves it. Verified on the Windows
+# box against the same headers and libclang — 0.71.1 drops the three fields,
+# 0.72.1 keeps them. Do not "unify" this back to 0.71 to save a bindgen compile.
+bindgen = "0.72"
