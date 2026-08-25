@@ -18,4 +18,4 @@ publish = false
 [build-dependencies]
 cc = "1"
 # Same bindgen line as thorvg-sys resolves to, so build hosts share the cache.
-bindgen = "0.71"
+bindgen = "0.72"
